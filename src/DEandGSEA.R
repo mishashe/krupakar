@@ -6,7 +6,7 @@
 # For github
 # cd /home/m.sheinman/Development/krupakar
 # git add ./src/*.*
-# git commit --all -m "empty project2"
+# git commit --all -m "added flexGSEA"
 # git push -u origin --all
 
 
@@ -20,6 +20,7 @@ library(biomaRt)
 require(doParallel)
 registerDoParallel(40)
 library(foreach)
+library(ComplexHeatmap)
 ############################################## import clinical data ###########################################################################################
 SamplesInfo <- as.data.frame(read_tsv("./data/sample_annotation.tsv", col_names = TRUE,show_col_types = FALSE))
 SamplesInfo <- SamplesInfo[SamplesInfo$material_type=="RNA",]
@@ -103,8 +104,9 @@ for (iPC in 1:25)
 {
   print(iPC)
   PC <- PCs[,paste0("PC_",iPC)]
-  mm <- model.matrix(~PC)
-  pdf(paste0("./plots/voom_PC",iPC,".pdf"))
+  Batch <- SamplesInfo$Set
+  mm <- model.matrix(~ PC + Batch)
+  pdf(paste0("./plots/voom.pdf"))
   xx <- voom(x, mm, plot = T)
   dev.off()
   
@@ -137,7 +139,26 @@ for (iPC in 1:25)
 }
 
 
-
+GeneSets <- as.data.frame(read_tsv(paste0("./plots/flexGSEA_PC1.csv"), col_names = TRUE,show_col_types = FALSE))
+SetsMatrix <- matrix(0,nrow=nrow(GeneSets),ncol=14)
+rownames(SetsMatrix) <- GeneSets$GeneSet
+colnames(SetsMatrix) <- paste0("PC",1:ncol(SetsMatrix))
+for (iPC in 1:ncol(SetsMatrix))
+{
+  GeneSets <- as.data.frame(read_tsv(paste0("./plots/flexGSEA_PC",iPC,".csv"), col_names = TRUE,show_col_types = FALSE))
+  rownames(GeneSets) <- GeneSets$GeneSet
+  SetsMatrix[,iPC] <- -log10(GeneSets[rownames(SetsMatrix),]$fdr)
+}
+pdf(paste0("./plots/",GMT,".pdf"),height=8)
+p <- Heatmap(SetsMatrix,
+             column_names_gp = grid::gpar(fontsize = 6),
+             row_names_gp = grid::gpar(fontsize = 6),
+             show_row_names = T,
+             show_column_names = T,
+             cluster_columns = F, 
+             cluster_rows = F)
+print(p)
+dev.off()  
 
 
 
