@@ -4,9 +4,11 @@
 
 
 # For github
-# cd /home/m.sheinman/Development/Krupakar
+# cd /home/m.sheinman/Development/krupakar
 # git add ./src/*.*
 # git commit --all -m "empty project"
 # git push origin master
 
 setwd("/home/m.sheinman/Development/Krupakar")
+library(readxl)
+
