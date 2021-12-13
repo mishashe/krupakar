@@ -21,6 +21,7 @@ require(doParallel)
 registerDoParallel(40)
 library(foreach)
 library(ComplexHeatmap)
+library(globaltest)
 ############################################## import clinical data ###########################################################################################
 SamplesInfo <- as.data.frame(read_tsv("./data/sample_annotation.tsv", col_names = TRUE,show_col_types = FALSE))
 SamplesInfo <- SamplesInfo[SamplesInfo$material_type=="RNA",]
@@ -80,17 +81,46 @@ rownames(GenesNames) <- GenesNames[,1]
 rownames(x) <- sapply(1:nrow(x),function(i){strsplit(rownames(x)[i],"\\.")[[1]][1]})
 
 # x <- x[rownames(x) %in% rownames(biotypes),]
+GenesNames <- GenesNames[!duplicated(GenesNames[,2]),]
 x <- x[rownames(x) %in% rownames(GenesNames),]
 GenesNames[duplicated(GenesNames[,2]),2] <- paste0(GenesNames[duplicated(GenesNames[,2]),2],"_2")
 
 rownames(x) <- GenesNames[rownames(x),2]
 
 
-############################################## limma and flexGSEA ############################################## 
 
+############################################## limma ############################################## 
+pdf(paste0("./plots/pValHist.pdf"))
+for (iPC in 1:25)
+{
+  print(iPC)
+  PC <- PCs[,paste0("PC_",iPC)]
+  Batch <- SamplesInfo$Set
+  mm <- model.matrix(~ PC + Batch)
+  pdf(paste0("./plots/voom.pdf"))
+  xx <- voom(x, mm, plot = T)
+  dev.off()
+  dat <- cbind(t(xx$E),data.frame(Set=SamplesInfo$Set))
+  
+  fit <- lmFit(xx, mm)
+  tmp <- contrasts.fit(fit, coef = 2) # test "HR" coefficient
+  tmp <- eBayes(tmp)
+  top.table <- topTable(tmp, sort.by = "P", n = Inf)
+  top.table$ID <- rownames(top.table)
+  top.table$cor <- cor(t(xx$E[top.table$ID,]),PC)
+  
+  write.table(top.table,
+              file = paste0("./plots/limma_PC",iPC,".csv"),
+              append=FALSE,row.names=FALSE,col.names=TRUE,sep = "\t",quote=FALSE)
+  gt_i <- gt(PCs[,paste0("PC_",iPC)], t(xx$E), null = ~ Set, data=dat)
+  hist(top.table$P.Value,plot=TRUE,main=paste0("GT p-val = ",summary(gt_i)[1]))
+}
+dev.off()
+
+##############################################  flexGSEA ############################################## 
 flexgsea_limmaContrast <- function (x,y, abs=T) {
   fit <- lmFit(x, y)
-  tmp <- contrasts.fit(fit, coef = 1) # test "HR" coefficient
+  tmp <- contrasts.fit(fit, coef = 2) # test "HR" coefficient
   tmp <- eBayes(tmp)
   t_stat <- tmp$t
   if (abs) {
@@ -99,7 +129,6 @@ flexgsea_limmaContrast <- function (x,y, abs=T) {
     t_stat
   }
 }
-
 for (iPC in 1:25)
 {
   print(iPC)
@@ -110,15 +139,6 @@ for (iPC in 1:25)
   xx <- voom(x, mm, plot = T)
   dev.off()
   
-  fit <- lmFit(xx, PC)
-  tmp <- contrasts.fit(fit, coef = 1) # test "HR" coefficient
-  tmp <- eBayes(tmp)
-  top.table <- topTable(tmp, sort.by = "P", n = Inf)
-  top.table$cor <- cor(t(xx$E[top.table$ID,]),PC)
-  
-  write.table(top.table,
-              file = paste0("./plots/limma_PC",iPC,".csv"),
-              append=FALSE,row.names=FALSE,col.names=TRUE,sep = "\t",quote=FALSE)
   # flexgsea
   GMT <- "h.all.v7.4.symbols.gmt"
   SetFile <- flexgsea::read_gmt(file=paste0("./data/",GMT))
@@ -140,7 +160,7 @@ for (iPC in 1:25)
 
 
 GeneSets <- as.data.frame(read_tsv(paste0("./plots/flexGSEA_PC1.csv"), col_names = TRUE,show_col_types = FALSE))
-SetsMatrix <- matrix(0,nrow=nrow(GeneSets),ncol=14)
+SetsMatrix <- matrix(0,nrow=nrow(GeneSets),ncol=25)
 rownames(SetsMatrix) <- GeneSets$GeneSet
 colnames(SetsMatrix) <- paste0("PC",1:ncol(SetsMatrix))
 for (iPC in 1:ncol(SetsMatrix))
@@ -149,8 +169,11 @@ for (iPC in 1:ncol(SetsMatrix))
   rownames(GeneSets) <- GeneSets$GeneSet
   SetsMatrix[,iPC] <- -log10(GeneSets[rownames(SetsMatrix),]$fdr)
 }
+
+library(circlize)
+col_fun = colorRamp2(c(min(SetsMatrix), max(SetsMatrix)), c("white", "red"))
 pdf(paste0("./plots/",GMT,".pdf"),height=8)
-p <- Heatmap(SetsMatrix,
+p <- Heatmap(SetsMatrix, col = col_fun,
              column_names_gp = grid::gpar(fontsize = 6),
              row_names_gp = grid::gpar(fontsize = 6),
              show_row_names = T,
